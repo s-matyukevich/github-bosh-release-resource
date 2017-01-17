@@ -1,0 +1,53 @@
+#!/bin/bash
+# vim: set ft=sh
+
+set -e
+
+exec 1>&2 # redirect all output to stderr for logging
+
+
+PATH=/usr/local/bin:$PATH
+
+
+payload=$TMPDIR/github-bosh-release-resource-request
+
+user=$(jq -r '.source.user // ""' < $payload)
+repository=$(jq -r '.source.repository // ""' < $payload)
+current_version=$(jq -r '.version.tag // ""' < $payload)
+
+if [ -z "$user" ]; then
+  echo "must specify user"
+  exit 1
+fi
+
+if [ -z "$repository" ]; then
+  echo "must specify repository"
+  exit 1
+fi
+
+if [ -z "$current_version" ]; then
+  echo "must specify version"
+  exit 1
+fi
+
+destination=$1
+
+if [ -z "$destination" ]; then
+  echo "usage: $0 <path/to/destination>" >&2
+  exit 1
+fi
+
+mkdir -p $destination
+
+[ -d /tmp/repo ] || git clone https://github.com/$repository/$user /tmp/repo
+cd /tmp/repo
+git pull
+git checkout $current_version
+bosh create-release --tarball=$destination/release.tgz --force
+
+jq -n '{
+  version: { tag: $version },
+  metadata: [
+    { name: "tag", value: $version }
+  ]
+}' --arg version "$current_version" 

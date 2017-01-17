@@ -1,0 +1,41 @@
+#!/bin/bash
+# vim: set ft=sh
+
+set -e
+
+exec 1>&2 # redirect all output to stderr for logging
+
+
+payload=$TMPDIR/github-bosh-release-resource-request
+
+user=$(jq -r '.source.user // ""' < $payload)
+repository=$(jq -r '.source.repository // ""' < $payload)
+current_version=$(jq -r '.version.tag // ""' < $payload)
+
+if [ -z "$user" ]; then
+  echo "must specify user"
+  exit 1
+fi
+
+if [ -z "$repository" ]; then
+  echo "must specify repository"
+  exit 1
+fi
+
+[ -d /tmp/repo ] || git clone https://github.com/$repository/$user /tmp/repo
+cd /tmp/repo
+git pull
+tags=$(git tag)
+IFS=$'\n'
+arr=($tags)
+
+last_idx=${#arr[@]}
+first_idx=$(($last_idx - 1))
+for (( i=0; i<${#arr[@]}; i++ ))
+do
+  if [[ "${arr[$i]}" = "${current_version}" ]]; then
+    first_idx=$i
+  fi
+done
+
+git tag | jq -R '.' | jq -s ".[$first_idx:$last_idx] | map({tag: .})"
